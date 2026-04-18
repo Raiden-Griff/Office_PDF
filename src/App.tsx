@@ -1,9 +1,32 @@
+import { useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
 import './App.css'
 
 function App() {
+  const [state, setState] = useState('');
+  const [file, setFile] = useState<File | undefined>();
+
+  async function handleOnSubmit(e: React.SyntheticEvent) {
+    e.preventDefault();
+    if( typeof file === 'undefined' ) return;
+
+    console.log('file', file)
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setState('Submitting...');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    setState('Submitted!');
+  }
+
+  function handleOnFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target as HTMLInputElement & {
+      files: FileList;
+    };
+    setFile(files.files[0]);
+  }
 
   return (
     <>
@@ -19,17 +42,16 @@ function App() {
             Please drag and drop your pdf's into the correct spaces below:
           </p>
         </div>
-        <div
-          onDragOver={(e) => {
-            e.preventDefault()
-          }}
-          onDrop={(e) => {
-            e.preventDefault()
-            const files: FileList = e.dataTransfer.files
-            console.log(files)
-          }}
-        ></div>
+        <form onSubmit={handleOnSubmit}>
+          <input type="file" name="pdf" onChange={handleOnFileChange} multiple />
+          <button type="submit"> Submit </button>
+        </form>
       </section>
+
+      <div>
+        {state === 'Submitting...' && <h1>Submitting...</h1>}
+        {state === 'Submitted!' && <h1>Submitted!</h1>}
+      </div>
 
       <div className="ticks"></div>
 
@@ -62,18 +84,6 @@ function App() {
           <h2>Connect with us</h2>
           <p>Join the Vite community</p>
           <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
             <li>
               <a href="https://chat.vite.dev/" target="_blank">
                 <svg
@@ -113,7 +123,6 @@ function App() {
           </ul>
         </div>
       </section>
-
       <div className="ticks"></div>
       <section id="spacer"></section>
     </>
