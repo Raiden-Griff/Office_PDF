@@ -21,7 +21,7 @@ def hello():
 @app.get("/api/summarize")
 def summarize(pdf_path):
     ''' 
-    Summarizes the pdf given the path
+    Summarizes the pdf given the path, returns as mk
     '''
     return agent.describe_text(pdf_path)
 
