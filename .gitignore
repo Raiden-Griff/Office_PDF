@@ -243,3 +243,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Extra
+config.py
+downloaded_papers
+uploads
+static

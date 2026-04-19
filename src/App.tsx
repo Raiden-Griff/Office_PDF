@@ -1,105 +1,173 @@
 import { useCallback, useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
-import { useDropzone } from 'react-dropzone' // Fixed lowercase 'z'
+import { useDropzone } from 'react-dropzone'
 import './App.css'
 
+type Paper = {
+  index: number
+  title: string
+  abstract: string
+  authors: string[]
+  published: string
+  link: string
+  pdf_link: string
+}
+
+type Group = {
+  label: string
+  rationale: string
+  paper_indices: number[]
+}
+
+type ProcessResult = {
+  meaning: object
+  papers: Paper[]
+  groups: { groups: Group[], reading_order: number[] }
+}
+
 function App() {
-  const [state, setState] = useState('');
-  const [file, setFile] = useState<File | undefined>();
-  const [preview, setPreview] = useState<string | ArrayBuffer | null>(null); // Fixed null type
+  const [file, setFile] = useState<File | undefined>()
+  const [state, setState] = useState<'idle' | 'processing' | 'building' | 'done' | 'error'>('idle')
+  const [processResult, setProcessResult] = useState<ProcessResult | null>(null)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles && acceptedFiles.length > 0) {
-      const selectedFile = acceptedFiles[0];
-      setFile(selectedFile);
-
-      const reader = new FileReader();
-      reader.onload = function () {
-        setPreview(reader.result);
-      };
-      reader.readAsDataURL(selectedFile);
-    }
+    if (acceptedFiles.length > 0) setFile(acceptedFiles[0])
   }, [])
 
-  // Fixed hook name to useDropzone
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/pdf': ['.pdf'] } // Optional: force PDF only
+    accept: { 'application/pdf': ['.pdf'] }
   })
 
-  async function handleOnSubmit(e: React.SyntheticEvent) {
-    e.preventDefault();
-    if( typeof file === 'undefined' ) return;
+  async function handleSubmit(e: React.SyntheticEvent) {
+    e.preventDefault()
+    if (!file) return
 
-    console.log('file', file)
-    const formData = new FormData();
-    formData.append('file', file);
+    try {
+      setState('processing')
+      setProcessResult(null)
+      setPdfUrl(null)
+      setError(null)
 
-    setState('Submitting...');
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setState('Submitted!');
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res1 = await fetch('http://localhost:8000/process', {
+        method: 'POST',
+        body: formData
+      })
+      if (!res1.ok) throw new Error(await res1.text())
+      const data1: ProcessResult = await res1.json()
+      setProcessResult(data1)
+
+      setState('building')
+      const res2 = await fetch('http://localhost:8000/build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ papers: data1.papers, groups: data1.groups })
+      })
+      if (!res2.ok) throw new Error(await res2.text())
+      const data2 = await res2.json()
+      setPdfUrl(`http://localhost:8000${data2.pdf_url}`)
+      setState('done')
+
+    } catch (err: any) {
+      setError(err.message)
+      setState('error')
+    }
   }
 
-  // function handleOnFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-  //   const files = e.target as HTMLInputElement & {
-  //     files: FileList;
-  //   };
-  //   setFile(files.files[0]);
-
-  //   const file = new FileReader;
-
-  //   file.onload = function () {
-  //     setPreview(file.result);
-  //   }
-
-  //   file.readAsDataURL(files.files[0])
-  // }
+  const paperLookup = processResult
+    ? Object.fromEntries(processResult.papers.map(p => [p.index, p]))
+    : {}
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Office PDF!</h1>
-          <p>
-            Please drag and drop your pdf's into the correct spaces below:
-          </p>
-       <div 
-  {...getRootProps()} 
-  className={`dropzone-box ${isDragActive ? 'dropzone-active' : ''}`}
->
-  <input {...getInputProps()} />
-  
-  {/* Add a little emoji or icon to make it obvious! */}
-  <span style={{ fontSize: '2rem', marginBottom: '10px' }}>📁</span>
-  
-  {isDragActive ? (
-    <p style={{ color: '#2e7d32' }}>Release to drop the PDF</p>
-  ) : (
-    <p>Drag 'n' drop your <b>PDF</b> here, or click to select</p>
-  )}
-
-  {/* This shows the file name ONLY after you pick one */}
-  {file && (
-    <div style={{ marginTop: '15px', color: '#646cff', fontWeight: 'bold' }}>
-      Selected: {file.name}
-    </div>
-  )}
-</div>
-        </div>
-      </section>
-
-      <div>
-        {state === 'Submitting...' && <h1>Submitting...</h1>}
-        {state === 'Submitted!' && <h1>Submitted!</h1>}
+    <section id="center">
+      <div className="hero">
+        <img src={heroImg} className="base" width="170" height="179" alt="" />
       </div>
-    </>
+
+      <h1>Office PDF!</h1>
+      <p>Drag and drop your paper below to find and compile related work.</p>
+
+      <div {...getRootProps()} className={`dropzone-box ${isDragActive ? 'dropzone-active' : ''}`}>
+        <input {...getInputProps()} />
+        <span style={{ fontSize: '2rem', marginBottom: '10px' }}>📁</span>
+        {isDragActive ? (
+          <p style={{ color: '#2e7d32' }}>Release to drop the PDF</p>
+        ) : (
+          <p>Drag 'n' drop your <b>PDF</b> here, or click to select</p>
+        )}
+        {file && (
+          <div style={{ marginTop: '15px', color: '#646cff', fontWeight: 'bold' }}>
+            Selected: {file.name}
+          </div>
+        )}
+      </div>
+
+      <button
+        className="upload-btn"
+        onClick={handleSubmit}
+        disabled={!file || state === 'processing' || state === 'building'}
+      >
+        {state === 'processing' ? 'Finding papers...' :
+         state === 'building'   ? 'Building PDF...' :
+         'Upload PDF'}
+      </button>
+
+      {error && <p style={{ color: 'red' }}>{error}</p>}
+
+      {(processResult || state === 'building' || pdfUrl) && (
+        <div className="results-layout">
+
+          <div className="groups-section">
+            <h2>Paper Groups</h2>
+            {processResult?.groups.groups.map((group, i) => (
+              <div key={i} className="group-card">
+                <div className="group-header">
+                  <h3>{group.label}</h3>
+                  <p className="rationale">{group.rationale}</p>
+                </div>
+                <div className="papers-list">
+                  {group.paper_indices.map(idx => {
+                    const paper = paperLookup[idx]
+                    return paper ? (
+                      <div key={idx} className="paper-card">
+                        <a href={paper.link} target="_blank" rel="noreferrer">{paper.title}</a>
+                        <p className="authors">
+                          {paper.authors.slice(0, 3).join(', ')}
+                          {paper.authors.length > 3 ? ' et al.' : ''} · {paper.published}
+                        </p>
+                        <p className="abstract">{paper.abstract}</p>
+                      </div>
+                    ) : null
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="pdf-section">
+            <h2>Compiled PDF</h2>
+            {pdfUrl ? (
+              <>
+                <iframe src={pdfUrl} />
+                <a href={pdfUrl} download="compiled.pdf">
+                  <button className="upload-btn">Download PDF</button>
+                </a>
+              </>
+            ) : (
+              <div className="pdf-placeholder">
+                {state === 'building' ? 'Building your PDF...' : 'PDF will appear here'}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+    </section>
   )
 }
 
