@@ -31,6 +31,7 @@ function App() {
   const [processResult, setProcessResult] = useState<ProcessResult | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [expandedPapers, setExpandedPapers] = useState<Set<number>>(new Set())
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) setFile(acceptedFiles[0])
@@ -41,6 +42,14 @@ function App() {
     accept: { 'application/pdf': ['.pdf'] }
   })
 
+  function toggleExpand(idx: number) {
+    setExpandedPapers(prev => {
+      const next = new Set(prev)
+      next.has(idx) ? next.delete(idx) : next.add(idx)
+      return next
+    })
+  }
+
   async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault()
     if (!file) return
@@ -50,6 +59,7 @@ function App() {
       setProcessResult(null)
       setPdfUrl(null)
       setError(null)
+      setExpandedPapers(new Set())
 
       const formData = new FormData()
       formData.append('file', file)
@@ -124,6 +134,7 @@ function App() {
 
           <div className="groups-section">
             <h2>Paper Groups</h2>
+            <div className="groups-scroll"></div>
             {processResult?.groups.groups.map((group, i) => (
               <div key={i} className="group-card">
                 <div className="group-header">
@@ -133,6 +144,7 @@ function App() {
                 <div className="papers-list">
                   {group.paper_indices.map(idx => {
                     const paper = paperLookup[idx]
+                    const isExpanded = expandedPapers.has(idx)
                     return paper ? (
                       <div key={idx} className="paper-card">
                         <a href={paper.link} target="_blank" rel="noreferrer">{paper.title}</a>
@@ -140,7 +152,12 @@ function App() {
                           {paper.authors.slice(0, 3).join(', ')}
                           {paper.authors.length > 3 ? ' et al.' : ''} · {paper.published}
                         </p>
-                        <p className="abstract">{paper.abstract}</p>
+                        <p className={`abstract ${isExpanded ? 'expanded' : ''}`}>
+                          {paper.abstract}
+                        </p>
+                        <button className="expand-btn" onClick={() => toggleExpand(idx)}>
+                          {isExpanded ? 'Show less ↑' : 'Read more ↓'}
+                        </button>
                       </div>
                     ) : null
                   })}
