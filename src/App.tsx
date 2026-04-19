@@ -1,191 +1,117 @@
 import { useCallback, useState } from 'react'
-import heroImg from './assets/hero.png'
-import { useDropzone } from 'react-dropzone'
+import PDFImg from './assets/pdf.png'
+import { useDropzone } from 'react-dropzone' 
+import { PDFDocument } from 'pdf-lib'
 import './App.css'
 
-type Paper = {
-  index: number
-  title: string
-  abstract: string
-  authors: string[]
-  published: string
-  link: string
-  pdf_link: string
-}
-
-type Group = {
-  label: string
-  rationale: string
-  paper_indices: number[]
-}
-
-type ProcessResult = {
-  meaning: object
-  papers: Paper[]
-  groups: { groups: Group[], reading_order: number[] }
-}
-
 function App() {
-  const [file, setFile] = useState<File | undefined>()
-  const [state, setState] = useState<'idle' | 'processing' | 'building' | 'done' | 'error'>('idle')
-  const [processResult, setProcessResult] = useState<ProcessResult | null>(null)
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [expandedPapers, setExpandedPapers] = useState<Set<number>>(new Set())
+  // --- States ---
+  const [files, setFiles] = useState<File[]>([]); 
+  const [preview, setPreview] = useState<string | null>(null);
+  const [status, setStatus] = useState('');
+  const [isMerging, setIsMerging] = useState(false);
 
+  // --- Dropzone Logic ---
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) setFile(acceptedFiles[0])
-  }, [])
+    if (acceptedFiles.length > 0) {
+      // Append new files to the list (Colby's multiple file approach)
+      setFiles((prev) => [...prev, ...acceptedFiles]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+      // Preview the first file dropped in this batch
+      const reader = new FileReader();
+      reader.onload = () => setPreview(reader.result as string);
+      reader.readAsDataURL(acceptedFiles[0]);
+    }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
     accept: { 'application/pdf': ['.pdf'] }
-  })
+  });
 
-  function toggleExpand(idx: number) {
-    setExpandedPapers(prev => {
-      const next = new Set(prev)
-      next.has(idx) ? next.delete(idx) : next.add(idx)
-      return next
-    })
-  }
+  // --- Merge Logic (Creating "PDF C") ---
+  const handleMerge = async (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    if (files.length < 2) return alert("Please add at least 2 PDFs!");
 
-  async function handleSubmit(e: React.SyntheticEvent) {
-    e.preventDefault()
-    if (!file) return
+    setIsMerging(true);
+    setStatus('Merging documents...');
 
     try {
-      setState('processing')
-      setProcessResult(null)
-      setPdfUrl(null)
-      setError(null)
-      setExpandedPapers(new Set())
+      const mergedPdf = await PDFDocument.create();
+      
+      for (const file of files) {
+        const bytes = await file.arrayBuffer();
+        const pdf = await PDFDocument.load(bytes);
+        const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+        copiedPages.forEach((page) => mergedPdf.addPage(page));
+      }
 
-      const formData = new FormData()
-      formData.append('file', file)
+      const mergedPdfBytes = await mergedPdf.save();
+      const blob = new Blob([mergedPdfBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      
+      // Creating a download link
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = "merged-office-doc.pdf";
+      link.click();
 
-      const res1 = await fetch('http://localhost:8000/process', {
-        method: 'POST',
-        body: formData
-      })
-      if (!res1.ok) throw new Error(await res1.text())
-      const data1: ProcessResult = await res1.json()
-      setProcessResult(data1)
-
-      setState('building')
-      const res2 = await fetch('http://localhost:8000/build', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ papers: data1.papers, groups: data1.groups })
-      })
-      if (!res2.ok) throw new Error(await res2.text())
-      const data2 = await res2.json()
-      setPdfUrl(`http://localhost:8000${data2.pdf_url}`)
-      setState('done')
-
-    } catch (err: any) {
-      setError(err.message)
-      setState('error')
+      setStatus('Success! Your merged PDF has downloaded.');
+    } catch (error) {
+      console.error(error);
+      setStatus('Error merging files.');
+    } finally {
+      setIsMerging(false);
     }
-  }
-
-  const paperLookup = processResult
-    ? Object.fromEntries(processResult.papers.map(p => [p.index, p]))
-    : {}
+  };
 
   return (
-    <section id="center">
-      <div className="hero">
-        <img src={heroImg} className="base" width="170" height="179" alt="" />
-      </div>
-
-      <h1>Office PDF!</h1>
-      <p>Drag and drop your paper below to find and compile related work.</p>
-
-      <div {...getRootProps()} className={`dropzone-box ${isDragActive ? 'dropzone-active' : ''}`}>
-        <input {...getInputProps()} />
-        <span style={{ fontSize: '2rem', marginBottom: '10px' }}>📁</span>
-        {isDragActive ? (
-          <p style={{ color: '#2e7d32' }}>Release to drop the PDF</p>
-        ) : (
-          <p>Drag 'n' drop your <b>PDF</b> here, or click to select</p>
-        )}
-        {file && (
-          <div style={{ marginTop: '15px', color: '#646cff', fontWeight: 'bold' }}>
-            Selected: {file.name}
-          </div>
-        )}
-      </div>
-
-      <button
-        className="upload-btn"
-        onClick={handleSubmit}
-        disabled={!file || state === 'processing' || state === 'building'}
-      >
-        {state === 'processing' ? 'Finding papers...' :
-         state === 'building'   ? 'Building PDF...' :
-         'Upload PDF'}
-      </button>
-
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-
-      {(processResult || state === 'building' || pdfUrl) && (
-        <div className="results-layout">
-
-          <div className="groups-section">
-            <h2>Paper Groups</h2>
-            <div className="groups-scroll"></div>
-            {processResult?.groups.groups.map((group, i) => (
-              <div key={i} className="group-card">
-                <div className="group-header">
-                  <h3>{group.label}</h3>
-                  <p className="rationale">{group.rationale}</p>
-                </div>
-                <div className="papers-list">
-                  {group.paper_indices.map(idx => {
-                    const paper = paperLookup[idx]
-                    const isExpanded = expandedPapers.has(idx)
-                    return paper ? (
-                      <div key={idx} className="paper-card">
-                        <a href={paper.link} target="_blank" rel="noreferrer">{paper.title}</a>
-                        <p className="authors">
-                          {paper.authors.slice(0, 3).join(', ')}
-                          {paper.authors.length > 3 ? ' et al.' : ''} · {paper.published}
-                        </p>
-                        <p className={`abstract ${isExpanded ? 'expanded' : ''}`}>
-                          {paper.abstract}
-                        </p>
-                        <button className="expand-btn" onClick={() => toggleExpand(idx)}>
-                          {isExpanded ? 'Show less ↑' : 'Read more ↓'}
-                        </button>
-                      </div>
-                    ) : null
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="pdf-section">
-            <h2>Compiled PDF</h2>
-            {pdfUrl ? (
-              <>
-                <iframe src={pdfUrl} />
-                <a href={pdfUrl} download="compiled.pdf">
-                  <button className="upload-btn">Download PDF</button>
-                </a>
-              </>
-            ) : (
-              <div className="pdf-placeholder">
-                {state === 'building' ? 'Building your PDF...' : 'PDF will appear here'}
-              </div>
-            )}
-          </div>
-
+    <div className="App">
+      <section id="center">
+        <div className="hero">
+          <img src={PDFImg} width="170" alt="PDF Icon" />
         </div>
-      )}
-    </section>
+
+        <h1>Office PDF!</h1>
+        <p>Drop PDF A and PDF B to create PDF C.</p>
+
+        {/* Dropzone Area */}
+        <div {...getRootProps()} className={`dropzone-box ${isDragActive ? 'active' : ''}`}>
+          <input {...getInputProps()} />
+          <span style={{ fontSize: '2rem' }}>📁</span>
+          <p>{isDragActive ? "Drop them!" : "Drag 'n' drop your PDFs here"}</p>
+        </div>
+
+        {/* File List & Submit */}
+        {files.length > 0 && (
+          <div className="file-list">
+            <h3>Queue ({files.length} files):</h3>
+            <ul>
+              {files.map((f, i) => <li key={i}>📄 {f.name}</li>)}
+            </ul>
+            <button onClick={handleMerge} disabled={isMerging} className="merge-btn">
+              {isMerging ? 'Processing...' : 'Merge & Download'}
+            </button>
+            <button onClick={() => {setFiles([]); setPreview(null);}} className="clear-btn">
+              Clear
+            </button>
+          </div>
+        )}
+
+        {status && <p className="status-msg">{status}</p>}
+
+        {/* Preview Frame */}
+        {preview && (
+          <div className="preview-wrap">
+            <hr />
+            <h3>Latest Upload Preview:</h3>
+            <iframe src={preview} width="100%" height="500px" title="Preview" />
+          </div>
+        )}
+      </section>
+    </div>
   )
 }
 
-export default App
+export default App;
