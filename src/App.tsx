@@ -1,143 +1,108 @@
 import { useCallback, useState } from 'react'
 import PDFImg from './assets/pdf.png'
-import { useDropzone } from 'react-dropzone' // Fixed lowercase 'z'
-import { PDFDocument } from 'pdf-lib'
+import { useDropzone } from 'react-dropzone' 
 import './App.css'
 
-type Paper = {
-  index: number
-  title: string
-  abstract: string
-  authors: string[]
-  published: string
-  link: string
-  pdf_link: string
-}
-
-type Group = {
-  label: string
-  rationale: string
-  paper_indices: number[]
-}
-
-type ProcessResult = {
-  meaning: object
-  papers: Paper[]
-  groups: { groups: Group[], reading_order: number[] }
-}
-
 function App() {
-  const [state, setState] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [isMerging, setIsMerging] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null); // Fixed null type
+  const [status, setStatus] = useState(''); // Added missing state
+  const [preview, setPreview] = useState<string | null>(null);
 
-const onDrop = useCallback((acceptedFiles: File[]) => {
+  const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-     setFiles((prev) => [...prev, ...acceptedFiles]); // Append new files to existing state
+      setFiles((prev) => [...prev, ...acceptedFiles]);
 
       const reader = new FileReader();
-
       reader.onload = () => setPreview(reader.result as string);
       reader.readAsDataURL(acceptedFiles[0]);
     }
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
-    accept: { 'application/pdf': ['.pdf'] } // Optional: force PDF only
+    accept: { 'application/pdf': ['.pdf'] }
   });
 
-  const handleMerge = async () => {
-    if (files.length < 2) return alert("Please upload at least 2 PDFs to merge!");
+  const handleMerge = async (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    if (files.length < 2) return alert("Please add at least 2 PDFs!");
 
     setIsMerging(true);
-    setStatus('Merging...');
-    
-    try {
-      const mergedPdf = await PDFDocument.create();
-      
-      for (const f of files) {
-        const bytes = await f.arrayBuffer();
-        const pdf = await PDFDocument.load(bytes);
-        const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-        pages.forEach((page) => mergedPdf.addPage(page));
-      }
+    setStatus('Uploading and merging on server...');
 
-      const mergedBytes = await mergedPdf.save();
-      const blob = new Blob([mergedBytes], { type: 'application/pdf' });
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('files', file); // 'files' must match Python argument name
+    });
+
+    try {
+      const response = await fetch('http://localhost:8000/merge-pdfs', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Merge failed');
+
+      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       
       const link = document.createElement('a');
       link.href = url;
-      link.download = "Merged_Office_Doc.pdf";
+      link.download = "merged-office-doc.pdf";
       link.click();
-      
-      setStatus('Success! Merged PDF downloaded.');
-    } catch (err) {
-      console.error(err);
-      setStatus('Error merging files.');
+
+      setStatus('Success! Merged via Python backend.');
+    } catch (error) {
+      console.error(error);
+      setStatus('Error connecting to backend.');
     } finally {
       setIsMerging(false);
     }
   };
   
   return (
-    <>
+    <div className="container">
       <section id="center">
         <div className="hero">
-          <img src={PDFImg} className="base" width="170" height="179" alt="" />
+          <img src={PDFImg} className="base" width="170" height="179" alt="PDF Icon" />
         </div>
         <div>
           <h1>Office PDF!</h1>
-          <p>
-            Please drag and drop your pdf's into the correct spaces below:
-          </p>
-       <div 
-  {...getRootProps()} 
-  className={`dropzone-box ${isDragActive ? 'dropzone-active' : ''}`}
->
-  <input {...getInputProps()} />
-  
-  {/* Add a little emoji or icon to make it obvious! */}
-  <span style={{ fontSize: '2rem', marginBottom: '10px' }}>📁</span>
-  
-  {isDragActive ? (
-    <p style={{ color: '#2e7d32' }}>Release to drop the PDF</p>
-  ) : (
-    <p>Drag 'n' drop your <b>PDF</b> here, or click to select</p>
-  )}
+          <p>Drag and drop your PDFs below:</p>
+          
+          <div {...getRootProps()} className={`dropzone-box ${isDragActive ? 'active' : ''}`}>
+            <input {...getInputProps()} />
+            <span style={{ fontSize: '2rem' }}>📁</span>
+            {isDragActive ? <p>Drop them!</p> : <p>Drag PDFs here or click</p>}
+          </div>
 
-  {/* This shows the file name ONLY after you pick one */}
-  {file && (
-    <div style={{ marginTop: '15px', color: '#646cff', fontWeight: 'bold' }}>
-      Selected: {file.name}
-    </div>
-  )}
-</div>
+          <div className="file-list">
+            {files.map((f, i) => (
+              <div key={i} className="file-item">📄 {f.name}</div>
+            ))}
+          </div>
+
+          <button 
+            onClick={handleMerge} 
+            disabled={isMerging || files.length < 2}
+            style={{ marginTop: '20px', padding: '10px 20px', cursor: 'pointer' }}
+          >
+            {isMerging ? 'Merging...' : 'Merge All PDFs'}
+          </button>
+          
+          <p>{status}</p>
         </div>
       </section>
 
-      <div>
-        {state === 'Submitting...' && <h1>Submitting...</h1>}
-        {state === 'Submitted!' && <h1>Submitted!</h1>}
-      </div>
-      {
-        preview && (
-          <div style={{ marginTop: '20px' }}>
-            <h2>PDF Preview:</h2>
-            <iframe 
-              src={preview as string}
-              title="PDF Preview"
-              width="100%"
-              height="500px"
-              style={{ border: '1px solid #ccc' }}
-            />
-          </div>
-        )
-      }
-    </>
+      {preview && (
+        <div className="preview-section">
+          <h2>Preview (First PDF):</h2>
+          <iframe src={preview} width="100%" height="500px" title="Preview" />
+        </div>
+      )}
+    </div>
   )
 }
 
-export default App
+export default App;
