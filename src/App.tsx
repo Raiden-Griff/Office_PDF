@@ -1,69 +1,71 @@
 import { useCallback, useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import PDFImg from './assets/pdf.png'
 import { useDropzone } from 'react-dropzone' // Fixed lowercase 'z'
+import { PDFDocument } from 'pdf-lib'
 import './App.css'
 
 function App() {
   const [state, setState] = useState('');
-  const [file, setFile] = useState<File | undefined>();
-  const [preview, setPreview] = useState<string | ArrayBuffer | null>(null); // Fixed null type
+  const [files, setFiles] = useState<File[]>([]);
+  const [isMerging, setIsMerging] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null); // Fixed null type
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles && acceptedFiles.length > 0) {
-      const selectedFile = acceptedFiles[0];
-      setFile(selectedFile);
+const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles.length > 0) {
+     setFiles((prev) => [...prev, ...acceptedFiles]); // Append new files to existing state
 
       const reader = new FileReader();
-      reader.onload = function () {
-        setPreview(reader.result);
-      };
-      reader.readAsDataURL(selectedFile);
+
+      reader.onload = () => setPreview(reader.result as string);
+      reader.readAsDataURL(acceptedFiles[0]);
     }
-  }, [])
+  }, []);
 
   // Fixed hook name to useDropzone
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
     accept: { 'application/pdf': ['.pdf'] } // Optional: force PDF only
-  })
+  });
 
-  async function handleOnSubmit(e: React.SyntheticEvent) {
-    e.preventDefault();
-    if( typeof file === 'undefined' ) return;
+  const handleMerge = async () => {
+    if (files.length < 2) return alert("Please upload at least 2 PDFs to merge!");
 
-    console.log('file', file)
-    const formData = new FormData();
-    formData.append('file', file);
+    setIsMerging(true);
+    setStatus('Merging...');
+    
+    try {
+      const mergedPdf = await PDFDocument.create();
+      
+      for (const f of files) {
+        const bytes = await f.arrayBuffer();
+        const pdf = await PDFDocument.load(bytes);
+        const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+        pages.forEach((page) => mergedPdf.addPage(page));
+      }
 
-    setState('Submitting...');
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setState('Submitted!');
-  }
-
-  // function handleOnFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-  //   const files = e.target as HTMLInputElement & {
-  //     files: FileList;
-  //   };
-  //   setFile(files.files[0]);
-
-  //   const file = new FileReader;
-
-  //   file.onload = function () {
-  //     setPreview(file.result);
-  //   }
-
-  //   file.readAsDataURL(files.files[0])
-  // }
-
+      const mergedBytes = await mergedPdf.save();
+      const blob = new Blob([mergedBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = "Merged_Office_Doc.pdf";
+      link.click();
+      
+      setStatus('Success! Merged PDF downloaded.');
+    } catch (err) {
+      console.error(err);
+      setStatus('Error merging files.');
+    } finally {
+      setIsMerging(false);
+    }
+  };
+  
   return (
     <>
       <section id="center">
         <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+          <img src={PDFImg} className="base" width="170" height="179" alt="" />
         </div>
         <div>
           <h1>Office PDF!</h1>
@@ -99,6 +101,20 @@ function App() {
         {state === 'Submitting...' && <h1>Submitting...</h1>}
         {state === 'Submitted!' && <h1>Submitted!</h1>}
       </div>
+      {
+        preview && (
+          <div style={{ marginTop: '20px' }}>
+            <h2>PDF Preview:</h2>
+            <iframe 
+              src={preview as string}
+              title="PDF Preview"
+              width="100%"
+              height="500px"
+              style={{ border: '1px solid #ccc' }}
+            />
+          </div>
+        )
+      }
     </>
   )
 }
