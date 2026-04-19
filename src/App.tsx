@@ -4,6 +4,28 @@ import { useDropzone } from 'react-dropzone' // Fixed lowercase 'z'
 import { PDFDocument } from 'pdf-lib'
 import './App.css'
 
+type Paper = {
+  index: number
+  title: string
+  abstract: string
+  authors: string[]
+  published: string
+  link: string
+  pdf_link: string
+}
+
+type Group = {
+  label: string
+  rationale: string
+  paper_indices: number[]
+}
+
+type ProcessResult = {
+  meaning: object
+  papers: Paper[]
+  groups: { groups: Group[], reading_order: number[] }
+}
+
 function App() {
   const [state, setState] = useState('');
   const [files, setFiles] = useState<File[]>([]);
@@ -21,8 +43,7 @@ const onDrop = useCallback((acceptedFiles: File[]) => {
     }
   }, []);
 
-  // Fixed hook name to useDropzone
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: { 'application/pdf': ['.pdf'] } // Optional: force PDF only
   });
